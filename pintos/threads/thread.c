@@ -24,6 +24,9 @@
    Do not modify this value. */
 #define THREAD_BASIC 0xd42df210
 
+/* List of sleeping threads waiting to be woken up */
+static struct list sleep_list;
+
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
@@ -108,6 +111,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init(&sleep_list);
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -587,4 +591,49 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+/* save the wake_tick to the thread and add it to the sleep_list. */
+void thread_sleep(int64_t wake_tick) {
+    // Add current thread to sleep_list
+    struct thread *curr = thread_current ();
+	enum intr_level old_level;
+
+	ASSERT (!intr_context ());
+
+	old_level = intr_disable ();
+
+	if (curr != idle_thread){
+	    curr->wake_tick = wake_tick;
+		list_push_back (&sleep_list, &curr->elem);
+		// put the current thread to BLOCK
+		// WARNING: if this were to put outside intr_set_level, it will cause race condition
+		thread_block();
+	}
+
+	intr_set_level (old_level);
+
+}
+
+/* check threads in every sleep_list and wake it up based on the wake_tick */
+void thread_wake_sleeping(int64_t current_tick) {
+    // Wake threads whose wake_tick <= current_tick
+
+    struct list_elem *e = list_begin(&sleep_list);
+
+    // for loop X list_remove -> it changes the pointers
+    // see list.h for the further explanations and usage
+    while (e != list_end(&sleep_list)){
+        // elem is the thread field name elem
+        struct thread *t = list_entry(e, struct thread, elem);
+
+       if (t->wake_tick <= current_tick){
+           // list_remove returns the elem->next
+           e = list_remove(e);
+           thread_unblock(t);
+           continue;
+       }
+        e = list_next(e);
+    }
+
 }
