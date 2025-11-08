@@ -28,6 +28,8 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+static struct list sleep_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -106,6 +108,7 @@ void thread_init(void)
 	/* Init the globla thread context */
 	lock_init(&tid_lock);
 	list_init(&ready_list);
+	list_init(&sleep_list);
 	list_init(&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -232,14 +235,25 @@ void thread_block(void)
    update other data. */
 void thread_unblock(struct thread *t)
 {
+	ASSERT(is_thread(t));
+	ASSERT(t->status == THREAD_BLOCKED);
+
 	enum intr_level old_level;
 
-	ASSERT(is_thread(t));
-
 	old_level = intr_disable();
-	ASSERT(t->status == THREAD_BLOCKED);
-	list_push_back(&ready_list, &t->elem);
+	bool a = intr_context();
+	struct thread *curr = thread_current();
+	list_insert_ordered(&ready_list, &t->elem, &priority_more, NULL);
 	t->status = THREAD_READY;
+	if (curr != idle_thread)
+	{
+		if (curr->priority < t->priority)
+			if (intr_context())
+				intr_yield_on_return();
+			else
+				thread_yield();
+	}
+
 	intr_set_level(old_level);
 }
 
@@ -303,15 +317,27 @@ void thread_yield(void)
 
 	old_level = intr_disable();
 	if (curr != idle_thread)
-		list_push_back(&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem, priority_more, NULL);
 	do_schedule(THREAD_READY);
 	intr_set_level(old_level);
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
+/* priority를 바꾸는데 낮춘경우는 양보하기 */
 void thread_set_priority(int new_priority)
 {
-	thread_current()->priority = new_priority;
+	struct thread *curr = thread_current();
+	if (curr != idle_thread)
+	{
+		thread_current()->priority = new_priority;
+		if (!list_empty(&ready_list))
+		{
+			if (new_priority < list_entry(list_begin(&ready_list), struct thread, elem)->priority)
+			{
+				thread_yield();
+			}
+		}
+	}
 }
 
 /* Returns the current thread's priority. */
@@ -399,8 +425,8 @@ kernel_thread(thread_func *function, void *aux)
 
 /* Does basic initialization of T as a blocked thread named
    NAME. */
-static void
-init_thread(struct thread *t, const char *name, int priority)
+/* 스레드를 blocked된 스레드로 초기화*/
+static void init_thread(struct thread *t, const char *name, int priority)
 {
 	ASSERT(t != NULL);
 	ASSERT(PRI_MIN <= priority && priority <= PRI_MAX);
@@ -597,4 +623,82 @@ allocate_tid(void)
 	lock_release(&tid_lock);
 
 	return tid;
+}
+
+/* save the wake_tick to the thread and add it to the sleep_list. */
+void thread_sleep(int64_t tick)
+{
+	// Add current thread to sleep_list
+	struct thread *curr = thread_current();
+	enum intr_level old_level;
+
+	ASSERT(!intr_context());
+
+	old_level = intr_disable();
+
+	if (curr != idle_thread)
+	{
+		curr->wake_tick = tick;
+		;
+		list_insert_ordered(&sleep_list, &curr->elem, &sleep_less, NULL);
+		// put the current thread to BLOCK
+		// WARNING: if this were to put outside intr_set_level, it will cause race condition
+		thread_block();
+	}
+
+	intr_set_level(old_level);
+}
+
+/* check threads in every sleep_list and wake it up based on the wake_tick */
+void thread_wake_sleeping(int64_t current_tick)
+{
+	// Wake threads whose wake_tick <= current_tick
+
+	struct list_elem *e = list_begin(&sleep_list);
+
+	// for loop X list_remove -> it changes the pointers
+	// see list.h for the further explanations and usage
+	while (e != list_end(&sleep_list))
+	{
+		// elem is the thread field name elem
+		struct thread *t = list_entry(e, struct thread, elem);
+
+		if (t->wake_tick <= current_tick)
+		{
+			// list_remove returns the elem->next
+			e = list_remove(e);
+			thread_unblock(t);
+			continue;
+		}
+		break;
+	}
+}
+
+// a가 b보다 wake_tick 작으면 true 반환
+bool sleep_less(struct list_elem *a, struct list_elem *b, void *aux UNUSED)
+{
+	struct thread *athread = list_entry(a, struct thread, elem);
+	struct thread *bthread = list_entry(b, struct thread, elem);
+
+	return athread->wake_tick < bthread->wake_tick;
+}
+
+// a가 b보다 priority 크면 true 반환
+bool priority_more(struct list_elem *a, struct list_elem *b, void *aux UNUSED)
+{
+	struct thread *athread = list_entry(a, struct thread, elem);
+	struct thread *bthread = list_entry(b, struct thread, elem);
+
+	return athread->priority > bthread->priority;
+}
+// a가 b보다 priority 크면 true 반환
+bool sema_priority_more(struct list_elem *a, struct list_elem *b, void *aux UNUSED)
+{
+	struct semaphore_elem *asema = list_entry(a, struct semaphore_elem, elem);
+	struct semaphore_elem *besma = list_entry(b, struct semaphore_elem, elem);
+
+	struct thread *athread = list_entry(list_front(&asema->semaphore.waiters), struct thread, elem);
+	struct thread *bthread = list_entry(list_front(&besma->semaphore.waiters), struct thread, elem);
+
+	return athread->priority < bthread->priority;
 }
