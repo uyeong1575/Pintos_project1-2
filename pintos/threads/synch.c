@@ -115,9 +115,9 @@ void sema_up(struct semaphore *sema)
 	old_level = intr_disable();
 	sema->value++;
 	if (!list_empty(&sema->waiters))
-		thread_unblock(list_entry(list_pop_front(&sema->waiters),
-								  struct thread, elem));
-
+	{
+		thread_unblock(list_entry(list_pop_front(&sema->waiters), struct thread, elem));
+	}
 	intr_set_level(old_level);
 }
 
@@ -193,8 +193,21 @@ void lock_acquire(struct lock *lock)
 	ASSERT(!intr_context());
 	ASSERT(!lock_held_by_current_thread(lock));
 
+	struct thread *curr = thread_current();
+
+	/* todo : 락 holder가 있고 그 락 holder가 나보다 우선순위가 낮으면 */
+	if ((lock->holder != NULL) && (lock->holder->priority < curr->priority))
+	{
+		/* donate_elem을 전달하고, 우선순위 전달, waiting_lock 추가 */
+		curr->waiting_lock = lock;
+		list_insert_ordered(&lock->holder->donaters, &curr->donate_elem,
+							donate_more, NULL);
+		lock->holder->priority = curr->priority;
+	}
+
 	sema_down(&lock->semaphore);
-	lock->holder = thread_current();
+	curr->waiting_lock = NULL; // 해제 됐으니 null로 업데이트
+	lock->holder = curr;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -228,6 +241,29 @@ void lock_release(struct lock *lock)
 {
 	ASSERT(lock != NULL);
 	ASSERT(lock_held_by_current_thread(lock));
+	struct thread *curr = thread_current();
+
+	/* lock에 해당하는 elem 제거, */
+	struct list_elem *e = list_begin(&curr->donaters);
+	while (e != list_end(&curr->donaters))
+	{
+		struct thread *t = list_entry(e, struct thread, donate_elem);
+		if (t->waiting_lock == lock)
+		{
+			list_remove(&t->donate_elem);
+		}
+		e = list_next(e);
+	}
+
+	/*우선순위 업데이트 */
+	if (!list_empty(&curr->donaters))
+	{
+		curr->priority = list_entry(list_begin(&curr->donaters), struct thread, donate_elem)->priority;
+	}
+	else
+	{
+		curr->priority = curr->original_priority;
+	}
 
 	lock->holder = NULL;
 	sema_up(&lock->semaphore);

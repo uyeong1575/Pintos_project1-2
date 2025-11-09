@@ -241,7 +241,6 @@ void thread_unblock(struct thread *t)
 	enum intr_level old_level;
 
 	old_level = intr_disable();
-	// bool a = intr_context();
 	list_insert_ordered(&ready_list, &t->elem, &priority_more, NULL);
 	t->status = THREAD_READY;
 	if (thread_current()->priority < t->priority)
@@ -435,6 +434,9 @@ static void init_thread(struct thread *t, const char *name, int priority)
 	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+	t->original_priority = priority;
+	list_init(&t->donaters);
+	t->waiting_lock = NULL;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -689,4 +691,12 @@ bool sema_priority_more(struct list_elem *a, struct list_elem *b, void *aux UNUS
 	struct thread *bthread = list_entry(list_front(&besma->semaphore.waiters), struct thread, elem);
 
 	return athread->priority < bthread->priority;
+}
+
+bool donate_more(struct list_elem *a, struct list_elem *b, void *aux UNUSED)
+{
+	struct thread *athread = list_entry(a, struct thread, donate_elem);
+	struct thread *bthread = list_entry(b, struct thread, donate_elem);
+
+	return athread->priority > bthread->priority;
 }
