@@ -27,7 +27,6 @@ typedef int tid_t;
 #define PRI_MIN 0	   /* Lowest priority. */
 #define PRI_DEFAULT 31 /* Default priority. */
 #define PRI_MAX 63	   /* Highest priority. */
-// #define UNSAVED 100	   /* saved_priority가 unsaved 된 상태 */
 
 /* A kernel thread or user process.
  *
@@ -92,13 +91,13 @@ struct thread
 	tid_t tid;				   /* Thread identifier. */
 	enum thread_status status; /* Thread state. */
 	char name[16];			   /* Name (for debugging purposes). */
-	int priority;			   /* Priority. */
-	int original_priority;	   /* donate시 원래 priority 저장 공간*/
+	int priority;			   /* Priority(donate 시 바뀜) */
+	int original_priority;	   /* 원래 priority*/
 	int64_t wake_tick;		   /* Time to wake up (for timer_sleep) */
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;		  /* List element. */
 	struct list_elem donate_elem; /* 내가 donate하는 경우 주는 elem */
-	struct list donaters;		  /* 나에게 donate한 thread 확인(우선순위 적용시 사용) */
+	struct list donaters;		  /* 나에게 donate한 thread 확인 */
 	struct lock *waiting_lock;	  /* 내가 기다리는 lock(release시 확인용)*/
 
 #ifdef USERPROG
@@ -156,7 +155,7 @@ bool sleep_less(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
 bool priority_more(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
 bool priority_less(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
 bool cond_priority_less(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
-bool donate_more(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
+bool donate_less(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
 void check_donate_priority(void);
 
 #endif /* threads/thread.h */

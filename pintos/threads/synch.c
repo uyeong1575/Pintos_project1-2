@@ -69,7 +69,6 @@ void sema_down(struct semaphore *sema)
 	while (sema->value == 0)
 	{
 		list_push_back(&sema->waiters, &thread_current()->elem);
-		// list_insert_ordered(&sema->waiters, &thread_current()->elem, priority_more, NULL);
 		thread_block();
 	}
 	sema->value--;
@@ -198,18 +197,15 @@ void lock_acquire(struct lock *lock)
 
 	struct thread *curr = thread_current();
 
-	/* todo : 락 holder가 있으면 */
+	/* conate 구현 */
 	if ((lock->holder != NULL))
 	{
-		/* waiting_lock 추가 */
 		curr->waiting_lock = lock;
-		/*그 락 holder가 나보다 우선순위가 낮으면*/
 		if (lock->holder->priority < curr->priority)
 		{
-			/*donate_elem을 전달하고*/
 			list_push_back(&lock->holder->donaters, &curr->donate_elem);
 			/*우선순위 전달(nested)*/
-			struct lock *nlock = lock; // lock과 curr를 아래서 쓰기 때문에 바꾸면 안되서 이것을 기준으로 돌도록
+			struct lock *nlock = lock; // lock을 아래서 쓰기 때문에 바뀌면 안되서
 			for (int i = 0; i < 8; i++)
 			{
 				if ((nlock == NULL) || (nlock->holder == NULL))

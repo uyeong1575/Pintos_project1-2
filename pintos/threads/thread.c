@@ -241,7 +241,6 @@ void thread_unblock(struct thread *t)
 	enum intr_level old_level;
 
 	old_level = intr_disable();
-	// list_sort(&ready_list, priority_more, NULL);
 	list_insert_ordered(&ready_list, &t->elem, &priority_more, NULL);
 	t->status = THREAD_READY;
 	if (thread_current()->priority < t->priority)
@@ -333,7 +332,10 @@ void thread_set_priority(int new_priority)
 		{
 			if (new_priority < list_entry(list_begin(&ready_list), struct thread, elem)->priority)
 			{
-				thread_yield();
+				if (intr_context())
+					intr_yield_on_return();
+				else
+					thread_yield();
 			}
 		}
 	}
@@ -705,12 +707,13 @@ bool cond_priority_less(struct list_elem *a, struct list_elem *b, void *aux UNUS
 	return athread->priority < bthread->priority;
 }
 
-bool donate_more(struct list_elem *a, struct list_elem *b, void *aux UNUSED)
+// a가 b보다 priority 작으면 true 반환 (list_max용)
+bool donate_less(struct list_elem *a, struct list_elem *b, void *aux UNUSED)
 {
 	struct thread *athread = list_entry(a, struct thread, donate_elem);
 	struct thread *bthread = list_entry(b, struct thread, donate_elem);
 
-	return athread->priority > bthread->priority;
+	return athread->priority < bthread->priority;
 }
 
 // donater list 우선순위 확인해서 업데이트
@@ -722,7 +725,7 @@ void check_donate_priority(void)
 	// donater 있으면 비교
 	if (!list_empty(&curr->donaters))
 	{
-		int donate_max_priority = list_entry(list_max(&curr->donaters, donate_more, NULL), struct thread, donate_elem)->priority;
+		int donate_max_priority = list_entry(list_max(&curr->donaters, donate_less, NULL), struct thread, donate_elem)->priority;
 		if (donate_max_priority > curr->original_priority)
 			curr->priority = donate_max_priority;
 	}
