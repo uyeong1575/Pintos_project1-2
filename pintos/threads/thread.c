@@ -327,6 +327,7 @@ void thread_set_priority(int new_priority)
 	if (curr != idle_thread)
 	{
 		thread_current()->priority = new_priority;
+		thread_current()->original_priority = new_priority; /* 이제 이게 오리지널임 */
 		if (!list_empty(&ready_list))
 		{
 			if (new_priority < list_entry(list_begin(&ready_list), struct thread, elem)->priority)
