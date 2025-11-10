@@ -157,5 +157,6 @@ bool priority_more(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
 bool priority_less(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
 bool cond_priority_less(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
 bool donate_more(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
+void check_donate_priority(void);
 
 #endif /* threads/thread.h */

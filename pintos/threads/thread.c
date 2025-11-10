@@ -326,8 +326,9 @@ void thread_set_priority(int new_priority)
 	struct thread *curr = thread_current();
 	if (curr != idle_thread)
 	{
-		thread_current()->priority = new_priority;
 		thread_current()->original_priority = new_priority; /* 이제 이게 오리지널임 */
+		check_donate_priority();
+
 		if (!list_empty(&ready_list))
 		{
 			if (new_priority < list_entry(list_begin(&ready_list), struct thread, elem)->priority)
@@ -710,4 +711,19 @@ bool donate_more(struct list_elem *a, struct list_elem *b, void *aux UNUSED)
 	struct thread *bthread = list_entry(b, struct thread, donate_elem);
 
 	return athread->priority > bthread->priority;
+}
+
+// donater list 우선순위 확인해서 업데이트
+void check_donate_priority(void)
+{
+	struct thread *curr = thread_current();
+	curr->priority = curr->original_priority; // 오리지널로 만들고
+
+	// donater 있으면 비교
+	if (!list_empty(&curr->donaters))
+	{
+		int donate_max_priority = list_entry(list_max(&curr->donaters, donate_more, NULL), struct thread, donate_elem)->priority;
+		if (donate_max_priority > curr->original_priority)
+			curr->priority = donate_max_priority;
+	}
 }

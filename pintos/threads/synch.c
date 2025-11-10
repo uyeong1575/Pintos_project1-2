@@ -263,14 +263,7 @@ void lock_release(struct lock *lock)
 	}
 
 	/*우선순위 업데이트(donaters없으면 원래것으로, 있으면 그중 max로)*/
-	if (!list_empty(&curr->donaters))
-	{
-		curr->priority = list_entry(list_max(&curr->donaters, donate_more, NULL), struct thread, donate_elem)->priority;
-	}
-	else
-	{
-		curr->priority = curr->original_priority;
-	}
+	check_donate_priority();
 
 	lock->holder = NULL;
 	sema_up(&lock->semaphore);
