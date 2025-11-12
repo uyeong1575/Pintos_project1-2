@@ -1,0 +1,14 @@
+services:
+  dev:
+    build:
+      context: ./.devcontainer
+      dockerfile: Dockerfile
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    volumes:
+      - ./:/workspace
+    working_dir: /workspace
+    tty: true
+    stdin_open: true

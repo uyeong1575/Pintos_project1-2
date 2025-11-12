@@ -49,6 +49,17 @@ void sema_init(struct semaphore *sema, unsigned value)
 	list_init(&sema->waiters);
 }
 
+bool
+cmp_sema_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+    struct thread *thread_a = list_entry(a, struct thread, elem);
+    struct thread *thread_b = list_entry(b, struct thread, elem);
+
+    // Higher priority comes first (descending order)
+    return thread_a->priority > thread_b->priority;
+}
+
+
 /* Down or "P" operation on a semaphore.  Waits for SEMA's value
    to become positive and then atomically decrements it.
 
@@ -339,6 +350,23 @@ void cond_wait(struct condition *cond, struct lock *lock)
 	lock_release(lock);
 	sema_down(&waiter.semaphore);
 	lock_acquire(lock);
+}
+
+bool cmp_cond_priority(const struct list_elem *a,
+                       const struct list_elem *b,
+                       void *aux UNUSED) {
+    struct semaphore_elem *sa = list_entry(a, struct semaphore_elem, elem);
+    struct semaphore_elem *sb = list_entry(b, struct semaphore_elem, elem);
+
+    // 각 세마포어의 waiters 리스트에서 최고 우선순위 스레드 비교
+    // compare priority list from the semaphore waiters' list
+    struct list_elem *a_front = list_front(&sa->semaphore.waiters);
+    struct list_elem *b_front = list_front(&sb->semaphore.waiters);
+
+    struct thread *ta = list_entry(a_front, struct thread, elem);
+    struct thread *tb = list_entry(b_front, struct thread, elem);
+
+    return ta->priority < tb->priority;
 }
 
 /* If any threads are waiting on COND (protected by LOCK), then

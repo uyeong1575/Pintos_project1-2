@@ -24,6 +24,9 @@
    Do not modify this value. */
 #define THREAD_BASIC 0xd42df210
 
+/* List of sleeping threads waiting to be woken up */
+static struct list sleep_list;
+
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
@@ -208,6 +211,11 @@ tid_t thread_create(const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock(t);
 
+	// if new thread has the higher priority than the current one
+	if (t->priority > thread_current()->priority) {
+		thread_yield();
+	}
+
 	return tid;
 }
 
@@ -223,6 +231,16 @@ void thread_block(void)
 	ASSERT(intr_get_level() == INTR_OFF);
 	thread_current()->status = THREAD_BLOCKED;
 	schedule();
+}
+
+bool
+cmp_thread_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+    struct thread *thread_a = list_entry(a, struct thread, elem);
+    struct thread *thread_b = list_entry(b, struct thread, elem);
+
+    // Higher priority comes first
+    return thread_a->priority > thread_b->priority;
 }
 
 /* Transitions a blocked thread T to the ready-to-run state.

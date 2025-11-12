@@ -158,4 +158,8 @@ bool cond_priority_less(struct list_elem *a, struct list_elem *b, void *aux UNUS
 bool donate_less(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
 void check_donate_priority(void);
 
+// thread clock alarm
+void thread_sleep(int64_t wake_tick);
+void thread_wake_sleeping(int64_t current_tick);
+
 #endif /* threads/thread.h */
