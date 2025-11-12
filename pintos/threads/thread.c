@@ -241,7 +241,7 @@ void thread_unblock(struct thread *t)
 	enum intr_level old_level;
 
 	old_level = intr_disable();
-	list_push_back(&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, &priority_more, NULL);
 	t->status = THREAD_READY;
 	if (thread_current()->priority < t->priority)
 	{
@@ -455,10 +455,8 @@ next_thread_to_run(void)
 {
 	if (list_empty(&ready_list))
 		return idle_thread;
-
-	struct list_elem *e = list_max(&ready_list, priority_less, NULL);
-	list_remove(e);
-	return list_entry(e, struct thread, elem);
+	else
+		return list_entry(list_pop_front(&ready_list), struct thread, elem);
 }
 
 /* Use iretq to launch the thread */
