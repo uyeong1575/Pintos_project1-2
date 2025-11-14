@@ -23,7 +23,7 @@
 #endif
 
 static void process_cleanup (void);
-static bool load (const char *file_name, struct intr_frame *if_);
+static bool load (const char **argv, int argc, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
@@ -50,8 +50,21 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	/* Extract program name for thread name (without modifying fn_copy) */
+	// the maximum number of the program name is 64; change if needed
+	char program_name[64];
+	const char *space = strchr(file_name, ' ');
+	if (space != NULL) {
+		size_t len = space - file_name;
+		if (len > 64) len = 63;
+		memcpy(program_name, file_name, len);
+		program_name[len] = '\0';
+	} else {
+		strlcpy(program_name, file_name, sizeof(program_name));
+	}
+
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (program_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -65,7 +78,6 @@ initd (void *f_name) {
 #endif
 
 	process_init ();
-
 	if (process_exec (f_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
@@ -158,12 +170,72 @@ error:
 	thread_exit ();
 }
 
+/* load the arguments to the stack */
+void load_arguments_to_stack(struct intr_frame *if_, char ** argv, int argc) {
+
+    uint8_t *rsp = if_->rsp;
+    char *arg_addresses[argc];  // 각 인자의 주소를 저장할 배열
+
+        // 1. 먼저 문자열 데이터를 스택에 푸시 (역순으로)
+    for (int i = argc - 1; i >= 0; i--) {
+        int len = strlen(argv[i]) + 1;  // null terminator 포함
+        rsp -= len;
+        memcpy(rsp, argv[i], len);
+        arg_addresses[i] = (char *)rsp;  // 이 주소를 저장
+    }
+
+
+    // 2. Word-align
+    while ((uintptr_t)rsp % 8 != 0) {
+        rsp--;
+        *rsp = 0;  // 패딩
+    }
+
+     // 3. argv[argc] = NULL 추가
+    rsp -= sizeof(char *);
+    *(char **)rsp = 0;
+
+    // 4. address stack에 추가
+    for (int i = argc - 1; i >= 0; i--) {
+        rsp -= sizeof(char *);
+        *(char **)rsp = arg_addresses[i];
+    }
+
+    // 5. rsi 저장 + return address 0 으로 추가
+    uint64_t rsi_value = (uint64_t)rsp;
+    rsp -= sizeof(void *);
+    *(char **)rsp = 0;
+
+    // 6. rdi + rsi 저장 + rsp 업데이트
+    if_->R.rdi = argc;
+    if_->R.rsi = rsi_value;
+    if_->rsp = rsp;
+
+}
+
+char **parse_arguments(char *test, int *argc_out) {
+    char *save_ptr;
+    int argc = 0;
+    static char *argv_arr[64];
+
+    for (char *token = strtok_r(test, " ", &save_ptr);
+        token != NULL && argc < 64;
+        token = strtok_r(NULL, " ", &save_ptr)) {
+        argv_arr[argc++] = token;
+    }
+
+    if (argc_out) *argc_out = argc;
+    return argv_arr;
+}
+
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
 int
 process_exec (void *f_name) {
-	char *file_name = f_name;
+    int argc = 0;
+	char ** argv = parse_arguments((char*)f_name, &argc);
 	bool success;
+
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -175,14 +247,14 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
-
 	/* And then load the binary */
-	success = load (file_name, &_if);
+	success = load (argv, argc, &_if);
 
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
-	if (!success)
+	palloc_free_page (f_name);
+	if (!success) {
 		return -1;
+	}
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -204,6 +276,10 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	// while (1){
+ //        thread_yield();
+	// }
+	timer_sleep(100);
 	return -1;
 }
 
@@ -321,7 +397,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
  * and its initial stack pointer into *RSP.
  * Returns true if successful, false otherwise. */
 static bool
-load (const char *file_name, struct intr_frame *if_) {
+load (const char **argv, int argc, struct intr_frame *if_) {
 	struct thread *t = thread_current ();
 	struct ELF ehdr;
 	struct file *file = NULL;
@@ -336,9 +412,10 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
-	file = filesys_open (file_name);
+	file = filesys_open (argv[0]);
+
 	if (file == NULL) {
-		printf ("load: %s: open failed\n", file_name);
+		printf ("load: %s: open failed\n", argv[0]);
 		goto done;
 	}
 
@@ -350,7 +427,7 @@ load (const char *file_name, struct intr_frame *if_) {
 			|| ehdr.e_version != 1
 			|| ehdr.e_phentsize != sizeof (struct Phdr)
 			|| ehdr.e_phnum > 1024) {
-		printf ("load: %s: error loading executable\n", file_name);
+		printf ("load: %s: error loading executable\n", argv[0]);
 		goto done;
 	}
 
@@ -416,6 +493,8 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	load_arguments_to_stack(if_, argv, argc);
+
 
 	success = true;
 

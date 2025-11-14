@@ -39,8 +39,38 @@ syscall_init (void) {
 
 /* The main system call interface */
 void
-syscall_handler (struct intr_frame *f UNUSED) {
-	// TODO: Your implementation goes here.
-	printf ("system call!\n");
-	thread_exit ();
+syscall_handler (struct intr_frame *f) {
+	// System call number is in rax
+	int syscall_num = f->R.rax;
+
+	switch (syscall_num) {
+		case SYS_WRITE:
+			{
+				int fd = f->R.rdi;                    // First argument: file descriptor
+				const void *buffer = (void *)f->R.rsi;  // Second argument: buffer
+				unsigned size = f->R.rdx;             // Third argument: size
+
+				// For now, only handle writing to stdout (fd = 1)
+				if (fd == 1) {
+					putbuf(buffer, size);  // Write to console
+					f->R.rax = size;         // Return number of bytes written
+				} else {
+					f->R.rax = -1;           // Error: unsupported fd
+				}
+			}
+			break;
+
+		case SYS_EXIT:
+			{
+				int status = f->R.rdi;  // First argument: exit status
+				printf("%s: exit(%d)\n", thread_current()->name, status);
+				thread_exit();
+			}
+			break;
+
+		default:
+			printf("system call! (unimplemented syscall number: %d)\n", syscall_num);
+			thread_exit();
+			break;
+	}
 }
