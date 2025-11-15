@@ -9,8 +9,18 @@
 #include "intrinsic.h"
 #include "include/threads/init.h"
 
+#include "threads/synch.h"
+#include "include/filesys/filesys.h"
+
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+
+//syscall 함수화
+static void sys_exit(int status);
+static bool sys_create(const char *file, unsigned initial_size);
+static void vaild_addr(void *addr);
+
+struct lock file_lock;
 
 /* System call.
  *
@@ -27,6 +37,9 @@ void syscall_handler (struct intr_frame *);
 
 void
 syscall_init (void) {
+
+	lock_init(&file_lock);
+
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
 			((uint64_t)SEL_KCSEG) << 32);
 	write_msr(MSR_LSTAR, (uint64_t) syscall_entry);
@@ -45,6 +58,14 @@ syscall_handler (struct intr_frame *f) {
 	int syscall_num = f->R.rax;
 
 	switch (syscall_num) {
+
+		case SYS_CREATE:
+			f->R.rax = sys_create(f->R.rdi, f->R.rsi);
+			break;
+
+
+
+
 		case SYS_WRITE:
 			{
 				int fd = f->R.rdi;                    // First argument: file descriptor
@@ -62,11 +83,7 @@ syscall_handler (struct intr_frame *f) {
 			break;
 
 		case SYS_EXIT:
-			{
-				int status = f->R.rdi;  // First argument: exit status
-				thread_current()->exit_status = status;
-				thread_exit();
-			}
+				sys_exit(f->R.rdi);
 			break;
 
 		case SYS_HALT:
@@ -80,4 +97,26 @@ syscall_handler (struct intr_frame *f) {
 			thread_exit();
 			break;
 	}
+}
+
+static void vaild_addr(void *addr){
+	if (addr == NULL || is_kernel_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL)
+		sys_exit(-1);
+}
+
+static bool sys_create(const char *file, unsigned initial_size){
+
+	//vaild_addr(file);
+
+
+	lock_acquire(&file_lock);
+	bool success = filesys_create(file, initial_size);
+	lock_release(&file_lock);
+	return success;
+}
+
+
+static void sys_exit(int status){
+	thread_current()->exit_status = status;
+	thread_exit();
 }
