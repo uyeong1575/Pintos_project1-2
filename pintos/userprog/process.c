@@ -50,21 +50,13 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
-	/* Extract program name for thread name (without modifying fn_copy) */
-	// the maximum number of the program name is 64; change if needed
-	char program_name[64];
-	const char *space = strchr(file_name, ' ');
-	if (space != NULL) {
-		size_t len = space - file_name;
-		if (len > 64) len = 63;
-		memcpy(program_name, file_name, len);
-		program_name[len] = '\0';
-	} else {
-		strlcpy(program_name, file_name, sizeof(program_name));
-	}
+	//thread에 file_name만 전달하도록
+	//이 과정은 단순 이름 전달 용도임, 보존이 의미가 없음 이미 fn_copy로 보존함
+	char* save_ptr;
+	file_name = strtok_r (file_name, " ", &save_ptr);
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (program_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -284,7 +276,7 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-
+	printf("%s: exit(%d)\n", thread_current()->name, curr->exit_status);
 	process_cleanup ();
 }
 

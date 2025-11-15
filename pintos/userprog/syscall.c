@@ -64,7 +64,7 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_EXIT:
 			{
 				int status = f->R.rdi;  // First argument: exit status
-				printf("%s: exit(%d)\n", thread_current()->name, status);
+				thread_current()->exit_status = status;
 				thread_exit();
 			}
 			break;
@@ -72,7 +72,7 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_HALT:
             {
                 power_off();
-                thread_exit();
+                //thread_exit(); power_off하면 끝
             }
             break;
 		default:
