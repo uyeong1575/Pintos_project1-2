@@ -7,6 +7,7 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "include/threads/init.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -68,6 +69,12 @@ syscall_handler (struct intr_frame *f) {
 			}
 			break;
 
+		case SYS_HALT:
+        {
+            power_off();
+            thread_exit();
+
+        }
 		default:
 			printf("system call! (unimplemented syscall number: %d)\n", syscall_num);
 			thread_exit();

@@ -213,29 +213,22 @@ void load_arguments_to_stack(struct intr_frame *if_, char ** argv, int argc) {
 
 }
 
-char **parse_arguments(char *test, int *argc_out) {
-    char *save_ptr;
-    int argc = 0;
-    static char *argv_arr[64];
-
-    for (char *token = strtok_r(test, " ", &save_ptr);
-        token != NULL && argc < 64;
-        token = strtok_r(NULL, " ", &save_ptr)) {
-        argv_arr[argc++] = token;
-    }
-
-    if (argc_out) *argc_out = argc;
-    return argv_arr;
-}
 
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
 int
 process_exec (void *f_name) {
-    int argc = 0;
-	char ** argv = parse_arguments((char*)f_name, &argc);
 	bool success;
+	// argv[0] = 프로그램 이름
+	char *argv[128];
+	int argc = 0;
 
+	char *token, *save_ptr;
+	for (token = strtok_r(f_name, " ", &save_ptr); token != NULL;
+		 token = strtok_r(NULL, " ", &save_ptr))
+	{
+		argv[argc++] = token;
+	}
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -277,7 +270,7 @@ process_wait (tid_t child_tid UNUSED) {
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
 	// while (1){
- //        thread_yield();
+    //        thread_yield();
 	// }
 	timer_sleep(100);
 	return -1;
