@@ -102,13 +102,12 @@ struct thread
 	struct list donaters;		  /* 나에게 donate한 thread 확인 */
 	struct lock *waiting_lock;	  /* 내가 기다리는 lock(release시 확인용)*/
 
-	//userprog
-	int exit_status;
-	struct fdtable *fdtable;
-
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4; /* Page map level 4 */
+
+	int exit_status;
+	struct fdtable *fdtable;
 
 #endif
 #ifdef VM

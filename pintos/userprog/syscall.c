@@ -266,18 +266,21 @@ static int sys_read(int fd, void *buffer, unsigned length){
 static int sys_write(int fd, void *buffer, unsigned length) {
 
 	vaild_get_buffer(buffer, length);
-	if(fd < 0 || fd > MAXNUM_FDT)
+	if(fd <= 0 || fd > MAXNUM_FDT) //0(stdin) 불가능 1~127까지 가능해야함
 		return -1;
 
-	lock_acquire(&file_lock);
 	// For now, only handle writing to stdout (fd = 1)
 	if (fd == 1) {
+		lock_acquire(&file_lock);
 		putbuf(buffer, length);  // Write to console
 		lock_release(&file_lock);
 		return length;         // Return number of bytes written
 	} else {
 		/* file에 write*/
 		struct file *file = thread_current()->fdtable->fdt[fd];
+		if(file == NULL)
+			return -1;
+		lock_acquire(&file_lock);
 		off_t size = file_write(file, buffer, length);
 		lock_release(&file_lock);
 		return size;   
