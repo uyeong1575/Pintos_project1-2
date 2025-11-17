@@ -27,11 +27,18 @@ static bool load (const char **argv, int argc, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
+extern struct lock file_lock;
+
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
 	struct thread *curr = thread_current ();
 
+	// initialize the fd_table
+	curr->fd_table = calloc(FD_TABLE_SIZE, sizeof(struct file *));
+	if (curr->fd_table == NULL) {
+        PANIC("Failed to allocate file descriptor table");
+	}
 	/* 프로세스에 필요한 구조체 여기서 만들어야함.*/
 
 }
@@ -52,6 +59,7 @@ process_create_initd (const char *file_name) {
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
+
 
 	//thread에 file_name만 전달하도록
 	//이 과정은 단순 이름 전달 용도임, 보존이 의미가 없음 이미 fn_copy로 보존함
@@ -278,6 +286,17 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+	if (curr->fd_table != NULL) {
+        for (int i = 2; i < FD_TABLE_SIZE; i++) {
+            if (curr->fd_table[i] != NULL) {
+                lock_acquire(&file_lock);
+                file_close(curr->fd_table[i]);
+                lock_release(&file_lock);
+            }
+        }
+        free(curr->fd_table);
+	}
+
 	printf("%s: exit(%d)\n", thread_current()->name, curr->exit_status);
 	process_cleanup ();
 }

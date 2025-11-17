@@ -27,6 +27,7 @@ typedef int tid_t;
 #define PRI_MIN 0	   /* Lowest priority. */
 #define PRI_DEFAULT 31 /* Default priority. */
 #define PRI_MAX 63	   /* Highest priority. */
+#define FD_TABLE_SIZE 128
 
 /* A kernel thread or user process.
  *
@@ -102,6 +103,9 @@ struct thread
 
 	//userprog
 	int exit_status;
+
+	// file descriptor table
+	struct file **fd_table;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

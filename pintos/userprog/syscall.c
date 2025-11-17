@@ -25,7 +25,7 @@ static void vaild_put_addr(void *addr, unsigned length);
 static bool sys_create(const char *file, unsigned initial_size);
 static bool sys_remove(const char *file);
 static int sys_write(int fd, void *buffer, unsigned length);
-
+static int sys_open(const char *file);
 static void sys_exit(int status);
 
 struct lock file_lock;
@@ -118,7 +118,7 @@ syscall_handler (struct intr_frame *f) {
 			break;
 
 		case SYS_OPEN:
-
+		    f->R.rax = sys_open(f->R.rdi);
 			break;
 
 		case SYS_FILESIZE:
@@ -162,7 +162,7 @@ static void vaild_get_addr(void *addr){
 static void vaild_put_addr(void *addr, unsigned length){
 	if(is_kernel_vaddr(addr) || addr == NULL)
 		sys_exit(-1);
-	
+
 	/* 나중에 put_user로 구현*/
 }
 
@@ -197,6 +197,35 @@ static int sys_write(int fd, void *buffer, unsigned length){
 		return -1;           // Error: unsupported fd
 	}
 
+}
+
+// should create a new file descriptor
+static int sys_open(const char *file){
+    vaild_get_addr(file);
+
+    struct file **fd_table = thread_current()->fd_table;
+        lock_acquire(&file_lock);
+        struct file *opened_file = filesys_open(file);
+        lock_release(&file_lock);
+
+        if (opened_file == NULL) {
+            return -1;
+        }
+
+
+        for (size_t i = 2; i < FD_TABLE_SIZE; i++) {
+            if(fd_table[i] == NULL){
+                fd_table[i] = opened_file;
+                return i;
+            }
+        }
+
+        // No free descriptors - close the file
+        lock_acquire(&file_lock);
+        file_close(opened_file);
+        lock_release(&file_lock);
+
+    return -1;
 }
 
 static void sys_exit(int status){
