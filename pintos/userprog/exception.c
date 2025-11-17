@@ -112,7 +112,6 @@ handle_syscall_fault (struct intr_frame *f) {
     if (f->cs != SEL_KCSEG)
         return false;
 
-	//get_user나 put_user가 fault 발생 시 done_get들어감
     if (f->R.rax == 0)
         return false;
 	//printf("done_주소임 : %d \n", f->R.rax);
@@ -168,6 +167,8 @@ page_fault (struct intr_frame *f) {
 	if (user)
 		kill (f);
 
+	/* 커널 fault인데, 접근 주소가 유저영역이고
+		뒤 함수 결과가 true면 get_user/put_user로 리턴*/
 	if (fault_addr < KERN_BASE && handle_syscall_fault (f))
         return;
 
