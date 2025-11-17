@@ -32,8 +32,16 @@ static void
 process_init (void) {
 	struct thread *curr = thread_current ();
 
-	/* 프로세스에 필요한 구조체 여기서 만들어야함.*/
+	/* 1. struct fdtable *fdtable 초기화 */
+	curr->fdtable = palloc_get_page(PAL_USER | PAL_ZERO);
+	if (curr->fdtable == NULL)
+        PANIC ("fdtable alloc fail");
 
+	/* fdtable 128칸 초기화 하기 */
+	curr->fdtable->fdt = calloc(MAXNUM_FDT, sizeof(struct file*));
+	if (curr->fdtable->fdt == NULL)
+        PANIC ("fdt alloc fail");
+	curr->fdtable->fd_checkp = 2;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.

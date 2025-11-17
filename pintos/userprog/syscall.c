@@ -24,6 +24,10 @@ static void vaild_put_addr(void *addr, unsigned length);
 //syscall 함수화
 static bool sys_create(const char *file, unsigned initial_size);
 static bool sys_remove(const char *file);
+static int sys_open(const char *file);
+static int sys_filesize(int fd);
+
+static int sys_read(int fd, void *buffer, unsigned length);
 static int sys_write(int fd, void *buffer, unsigned length);
 
 static void sys_exit(int status);
@@ -43,7 +47,6 @@ struct lock file_lock;
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
-/* todo : 지금 주소 저장 할지 말지*/
 static int64_t
 get_user (const uint8_t *uaddr) {
     int64_t result;
@@ -118,15 +121,15 @@ syscall_handler (struct intr_frame *f) {
 			break;
 
 		case SYS_OPEN:
-
+			f->R.rax = sys_open(f->R.rdi);
 			break;
 
 		case SYS_FILESIZE:
-
+			f->R.rax = sys_filesize(f->R.rdi);
 			break;
 
 		case SYS_READ:
-
+			f->R.rax = sys_read(f->R.rdi, f->R.rsi, f->R.rdx);
 			break;
 
 		case SYS_WRITE:
@@ -152,10 +155,9 @@ syscall_handler (struct intr_frame *f) {
 	}
 }
 
+
 static void vaild_get_addr(void *addr){
-	if(is_kernel_vaddr(addr) || addr == NULL)
-		sys_exit(-1);
-	if(get_user(addr) < 0)
+	if(is_kernel_vaddr(addr) || addr == NULL || (get_user(addr) < 0))
 		sys_exit(-1);
 }
 
@@ -166,6 +168,7 @@ static void vaild_put_addr(void *addr, unsigned length){
 	/* 나중에 put_user로 구현*/
 }
 
+/* file create 성공시 true*/
 static bool sys_create(const char *file, unsigned initial_size){
 
 	vaild_get_addr(file);
@@ -185,19 +188,67 @@ static bool sys_remove(const char *file){
 	return success;
 }
 
+static int sys_open(const char *file){
+
+	struct thread *curr = thread_current();
+
+	vaild_get_addr(file);
+	lock_acquire(&file_lock);
+
+	struct file *open_file = filesys_open(file);
+	if (open_file == NULL){
+		lock_release(&file_lock);
+		return -1;
+	}
+
+	int fd = curr->fdtable->fd_checkp;
+	while (curr->fdtable->fdt[fd] != NULL){
+		fd++;
+		if(fd > MAXNUM_FDT){
+			//sys_close(file);
+			lock_release(&file_lock);
+			return -1;
+		}
+	}
+
+	curr->fdtable->fdt[fd] = open_file;
+	curr->fdtable->fd_checkp = fd + 1; //fd_check point 업데이트
+	lock_release(&file_lock);
+	return fd;
+}
+
+static int sys_filesize(int fd){
+
+	struct file *file = thread_current()->fdtable->fdt[fd];
+	return file_length(file);
+}
+
+static int sys_read(int fd, void *buffer, unsigned length){
+
+
+
+}
+
 static int sys_write(int fd, void *buffer, unsigned length){
 
 	/* todo : buffer valid*/
 
+	lock_acquire(&file_lock);
 	// For now, only handle writing to stdout (fd = 1)
 	if (fd == 1) {
 		putbuf(buffer, length);  // Write to console
+		lock_release(&file_lock);
 		return length;         // Return number of bytes written
 	} else {
+		lock_release(&file_lock);
 		return -1;           // Error: unsupported fd
 	}
 
 }
+
+
+
+
 
 static void sys_exit(int status){
 	thread_current()->exit_status = status;
