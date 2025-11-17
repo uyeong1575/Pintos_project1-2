@@ -30,7 +30,10 @@ static void __do_fork (void *);
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
-	struct thread *current = thread_current ();
+	struct thread *curr = thread_current ();
+
+	/* 프로세스에 필요한 구조체 여기서 만들어야함.*/
+
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -204,7 +207,6 @@ void load_arguments_to_stack(struct intr_frame *if_, char ** argv, int argc) {
     if_->rsp = rsp;
 
 }
-
 
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */

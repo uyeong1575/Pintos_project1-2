@@ -9,8 +9,26 @@
 #include "intrinsic.h"
 #include "include/threads/init.h"
 
+#include "threads/synch.h"
+#include "include/filesys/filesys.h"
+#include "filesys/file.h"
+#include "filesys/inode.h"
+
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+
+
+static void vaild_get_addr(void *addr);
+static void vaild_put_addr(void *addr, unsigned length);
+
+//syscall 함수화
+static bool sys_create(const char *file, unsigned initial_size);
+static bool sys_remove(const char *file);
+static int sys_write(int fd, void *buffer, unsigned length);
+
+static void sys_exit(int status);
+
+struct lock file_lock;
 
 /* System call.
  *
@@ -25,8 +43,43 @@ void syscall_handler (struct intr_frame *);
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
+/* todo : 지금 주소 저장 할지 말지*/
+static int64_t
+get_user (const uint8_t *uaddr) {
+    int64_t result;
+
+    if (uaddr == NULL || !is_user_vaddr (uaddr))
+        return -1;
+
+    __asm __volatile (
+        "movabsq $done_get, %0\n"
+        "movzbq %1, %0\n"
+        "done_get:\n"
+        : "=&a" (result) : "m" (*uaddr));
+    return result;
+}
+
+static bool
+put_user (uint8_t *udst, uint8_t byte) {
+    int64_t error_code;
+
+    if (udst == NULL || !is_user_vaddr (udst))
+        return false;
+
+    __asm __volatile (
+        "movabsq $done_put, %0\n"
+        "movb %b2, %1\n"
+        "done_put:\n"
+        : "=&a" (error_code), "=m" (*udst) : "q" (byte));
+    return error_code != -1;
+}
+
+
 void
 syscall_init (void) {
+
+	lock_init(&file_lock);
+
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
 			((uint64_t)SEL_KCSEG) << 32);
 	write_msr(MSR_LSTAR, (uint64_t) syscall_entry);
@@ -45,39 +98,108 @@ syscall_handler (struct intr_frame *f) {
 	int syscall_num = f->R.rax;
 
 	switch (syscall_num) {
-		case SYS_WRITE:
-			{
-				int fd = f->R.rdi;                    // First argument: file descriptor
-				const void *buffer = (void *)f->R.rsi;  // Second argument: buffer
-				unsigned size = f->R.rdx;             // Third argument: size
-
-				// For now, only handle writing to stdout (fd = 1)
-				if (fd == 1) {
-					putbuf(buffer, size);  // Write to console
-					f->R.rax = size;         // Return number of bytes written
-				} else {
-					f->R.rax = -1;           // Error: unsupported fd
-				}
-			}
-			break;
-
-		case SYS_EXIT:
-			{
-				int status = f->R.rdi;  // First argument: exit status
-				thread_current()->exit_status = status;
-				thread_exit();
-			}
-			break;
 
 		case SYS_HALT:
-            {
-                power_off();
-                //thread_exit(); power_off하면 끝
-            }
+            power_off();
             break;
+
+		case SYS_EXIT:
+			sys_exit(f->R.rdi);
+			break;
+
+
+
+		case SYS_CREATE:
+			f->R.rax = sys_create(f->R.rdi, f->R.rsi);
+			break;
+
+		case SYS_REMOVE:
+			f->R.rax = sys_remove(f->R.rdi);
+			break;
+
+		case SYS_OPEN:
+
+			break;
+
+		case SYS_FILESIZE:
+
+			break;
+
+		case SYS_READ:
+
+			break;
+
+		case SYS_WRITE:
+			f->R.rax = sys_write(f->R.rdi, f->R.rsi, f->R.rdx);
+			break;
+
+		case SYS_SEEK:
+
+			break;
+
+		case SYS_TELL:
+
+			break;
+
+
+		case SYS_CLOSE:
+			break;
+
 		default:
 			printf("system call! (unimplemented syscall number: %d)\n", syscall_num);
 			thread_exit();
 			break;
 	}
+}
+
+static void vaild_get_addr(void *addr){
+	if(is_kernel_vaddr(addr) || addr == NULL)
+		sys_exit(-1);
+	if(get_user(addr) < 0)
+		sys_exit(-1);
+}
+
+static void vaild_put_addr(void *addr, unsigned length){
+	if(is_kernel_vaddr(addr) || addr == NULL)
+		sys_exit(-1);
+	
+	/* 나중에 put_user로 구현*/
+}
+
+static bool sys_create(const char *file, unsigned initial_size){
+
+	vaild_get_addr(file);
+
+	lock_acquire(&file_lock);
+	bool success = filesys_create(file, initial_size);
+	lock_release(&file_lock);
+	return success;
+}
+
+static bool sys_remove(const char *file){
+	vaild_get_addr(file);
+
+	lock_acquire(&file_lock);
+	bool success = filesys_remove(file);
+	lock_release(&file_lock);
+	return success;
+}
+
+static int sys_write(int fd, void *buffer, unsigned length){
+
+	/* todo : buffer valid*/
+
+	// For now, only handle writing to stdout (fd = 1)
+	if (fd == 1) {
+		putbuf(buffer, length);  // Write to console
+		return length;         // Return number of bytes written
+	} else {
+		return -1;           // Error: unsupported fd
+	}
+
+}
+
+static void sys_exit(int status){
+	thread_current()->exit_status = status;
+	thread_exit();
 }

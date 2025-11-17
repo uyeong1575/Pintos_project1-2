@@ -107,6 +107,20 @@ kill (struct intr_frame *f) {
 	}
 }
 
+static bool
+handle_syscall_fault (struct intr_frame *f) {
+    if (f->cs != SEL_KCSEG)
+        return false;
+
+    if (f->R.rax == 0)
+        return false;
+	//printf("done_주소임 : %d \n", f->R.rax);
+    f->rip = f->R.rax;     
+    f->R.rax = -1;        
+    return true;
+}
+
+
 /* Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
    also require modifying this code.
@@ -146,12 +160,17 @@ page_fault (struct intr_frame *f) {
 	if (vm_try_handle_fault (f, fault_addr, user, write, not_present))
 		return;
 #endif
-
+	
 	/* Count page faults. */
 	page_fault_cnt++;
 
 	if (user)
-		kill (f);	
+		kill (f);
+
+	/* 커널 fault인데, 접근 주소가 유저영역이고
+		뒤 함수 결과가 true면 get_user/put_user로 리턴*/
+	if (fault_addr < KERN_BASE && handle_syscall_fault (f))
+        return;
 
 	/* If the fault is true fault, show info and exit. */
 	printf ("Page fault at %p: %s error %s page in %s context.\n",
