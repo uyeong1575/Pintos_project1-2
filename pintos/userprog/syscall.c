@@ -31,7 +31,7 @@ static int sys_read(int fd, void *buffer, unsigned length);
 static int sys_write(int fd, void *buffer, unsigned length);
 static void sys_seek(int fd, unsigned position);
 unsigned sys_tell(int fd);
-void sys_close(int fd);
+static void sys_close(int fd);
 static void sys_exit(int status);
 
 struct lock file_lock;
@@ -229,6 +229,27 @@ static int sys_open(const char *file){
     return res;
 }
 
+static void sys_close(int fd)
+{
+	//fd 범위 검증
+	if(fd<2 || fd>=FD_TABLE_SIZE)
+	{
+		sys_exit(-1);
+	}
+
+	struct file **fd_table = thread_current()->fd_table;
+	if(fd_table == NULL || fd_table[fd]==NULL)
+	{
+		sys_exit(-1);
+	}
+
+	lock_acquire(&file_lock);
+	file_close(fd_table[fd]);
+	fd_table[fd]=NULL;			//fd 재사용 가능
+	lock_release(&file_lock);
+}
+
+
 static int sys_filesize(int fd){
     // Validate fd range
     if (fd < 0 || fd >= FD_TABLE_SIZE)
@@ -333,10 +354,6 @@ unsigned sys_tell(int fd){
 	unsigned size = file_tell(file);
 	lock_release(&file_lock);
 	return size;
-}
-
-void sys_close(int fd) {
-
 }
 
 static void sys_exit(int status){
