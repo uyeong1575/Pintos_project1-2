@@ -240,18 +240,18 @@ static int sys_filesize(int fd){
     }
 
     struct file **fd_table = thread_current()->fd_table;
-    if (fd_table == NULL || fd_table[fd] == NULL) {
+    if (fd_table == NULL) {
         return -1;
     }
 
     lock_acquire(&file_lock);
-    struct file *file = fd_table[fd];
-    if (file == NULL) {  // Double-check after acquiring lock
+    struct file *f = fd_table[fd];
+    if (f == NULL) {  // Double-check after acquiring lock
         lock_release(&file_lock);
         return -1;
     }
 
-    int size = file_length(file);
+    int size = file_length(f);
     lock_release(&file_lock);
 
     return size;
