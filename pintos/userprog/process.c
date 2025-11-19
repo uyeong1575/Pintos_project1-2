@@ -454,10 +454,14 @@ process_exit (void) {
         free(curr->fd_table);
 	}
 
-	printf("%s: exit(%d)\n", thread_current()->name, curr->exit_status);
 	process_cleanup ();
-	
-	sema_up(&curr->child_info->wait_sema);
+
+	/* child_info 없으면 그냥 exit하면 됨 */
+	if (curr->child_info != NULL){
+		printf("%s: exit(%d)\n", thread_current()->name, curr->exit_status);
+		sema_up(&curr->child_info->wait_sema);
+	}
+
 }
 
 /* Free the current process's resources. */
