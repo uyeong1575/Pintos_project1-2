@@ -110,7 +110,7 @@ struct thread
 	struct file **fd_table;
 
 	struct list child_list;
-	struct thread *parent;
+	// struct thread *parent;
 	struct child *child_info;
 	struct file *executable;
 
@@ -125,12 +125,12 @@ struct thread
 	unsigned magic;		  /* Detects stack overflow. */
 };
 
-struct child { 
+struct child {
 	struct list_elem child_elem;
 	tid_t child_tid;
 	int exit_status;
-	bool waited; 
-	struct semaphore wait_sema; 
+	bool waited;
+	struct semaphore wait_sema;
 };
 
 /* If false (default), use round-robin scheduler.

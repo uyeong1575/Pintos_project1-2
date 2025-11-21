@@ -62,7 +62,7 @@ process_create_initd (const char *file_name) {
     struct child *c = calloc (1, sizeof(struct child));
     if (c == NULL)
         return TID_ERROR;
-	
+
     struct initd_arg *initd_arg = calloc (1, sizeof(struct initd_arg));
     if (initd_arg == NULL){
 		free(c);
@@ -91,7 +91,7 @@ process_create_initd (const char *file_name) {
 	initd_arg->fn_copy = fn_copy;
 	initd_arg->c = c;
 
-	sema_init(&c->wait_sema, 0);	// 먼저 sema_init 해야함!! 
+	sema_init(&c->wait_sema, 0);	// 먼저 sema_init 해야함!!
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, initd_arg);
@@ -222,7 +222,7 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	newpage = palloc_get_page(PAL_USER | PAL_ZERO);
 	if(newpage == NULL)
 		return false;
-		
+
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
@@ -251,7 +251,7 @@ __do_fork (void *aux) {
 	struct thread *parent = (struct thread *) args->t;
 	struct thread *current = thread_current ();
 
-	current->parent = parent;
+	// current->parent = parent;
 	current->child_info = args->c;
 
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
@@ -421,7 +421,7 @@ process_wait (tid_t child_tid UNUSED) {
 	struct thread *curr = thread_current();
 	struct child *target = NULL;
 
-	for (struct list_elem *e = list_begin(&curr->child_list); e != list_end(&curr->child_list); e = list_next(e)) 
+	for (struct list_elem *e = list_begin(&curr->child_list); e != list_end(&curr->child_list); e = list_next(e))
 	{
 		struct child *c = list_entry(e, struct child, child_elem);
 		if (c->child_tid == child_tid) {
@@ -429,7 +429,7 @@ process_wait (tid_t child_tid UNUSED) {
 			break;
 		}
 	}
-	
+
 	// 자식이 아니거나, 이미 wait 호출한 자식이면
 	if(target == NULL || target->waited == true)
 		return -1;
@@ -476,8 +476,10 @@ process_exit (void) {
 	}
 
 	if (curr->executable) {
+	    lock_acquire(&file_lock);
         file_allow_write(curr->executable);
         file_close(curr->executable);
+        lock_release(&file_lock);
 	}
 
 }
@@ -690,8 +692,7 @@ load (const char **argv, int argc, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	if (!success && file != NULL) {
-        file_allow_write(file);
+	if (!success) {
         file_close(file);
         t->executable = NULL;
     }
