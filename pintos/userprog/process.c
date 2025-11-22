@@ -26,6 +26,7 @@
 #include <list.h>
 
 static void process_cleanup (void);
+static void set_initd_stdio (struct thread *t);
 static bool load (const char **argv, int argc, struct intr_frame *if_);
 static void initd (void *aux);
 static void __do_fork (void *);
@@ -37,32 +38,29 @@ static void
 process_init (void) {
 	struct thread *curr = thread_current ();
 	/* 프로세스에 필요한 구조체 여기서 만들어야함.*/
-	// initialize the fd_table
 
-	/* fdt_entry 128칸 초기화 하기 */
+	/* fdt entry 포인터 배열 할당 */
 	curr->fdt_entry = calloc(FD_TABLE_SIZE, sizeof(struct fdt_entry*));
 	if (curr->fdt_entry == NULL)
         PANIC("Failed to allocate file descriptor table");
-	
-	/* fdt_entry[0] 세팅 */
-	struct fdt_entry *fdt_entry0 = calloc(1, sizeof(struct fdt_entry));
-	if(fdt_entry0 == NULL){
-		free(curr->fdt_entry);
-		PANIC("Failed to allocate fdt[0]");
-	}
-	curr->fdt_entry[0] = fdt_entry0;
-	curr->fdt_entry[0]->type = STDIN;
+}
 
-	/* fdt_entry[1] 세팅 */
-	struct fdt_entry *fdt_entry1 = calloc(1, sizeof(struct fdt_entry));
-	if(fdt_entry1 == NULL){
-		free(curr->fdt_entry);
-		free(fdt_entry0);
-		PANIC("Failed to allocate fdt[1]");
-	}
-	curr->fdt_entry[1] = fdt_entry1;
-	curr->fdt_entry[1]->type = STDOUT;
+/* initd 처음 STDIN/STDOUT 세팅, (이후 fork는 부모 따라가도록) */
+static void
+set_initd_stdio (struct thread *t) {
+	struct fdt_entry *f0 = calloc(1, sizeof(struct fdt_entry));
+	if (f0 == NULL)
+		PANIC("Failed to initd STDIN setting");
 
+	struct fdt_entry *f1 = calloc(1, sizeof(struct fdt_entry));
+	if (f1 == NULL) {
+		free(f0);
+		PANIC("Failed to initd STDOUT setting");
+	}
+	t->fdt_entry[0] = f0;
+	t->fdt_entry[0]->type = STDIN;
+	t->fdt_entry[1] = f1;
+	t->fdt_entry[1]->type = STDOUT;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -148,7 +146,10 @@ initd (void *aux) {
 	//exit시 child_info 접근(sema_up, exit_status) 하기 때문에 여기서 해야함
 	thread_current()->child_info = child;
 
-	process_init ();
+	process_init();
+
+	set_initd_stdio(thread_current());
+
 	if (process_exec (file_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
@@ -205,7 +206,10 @@ process_fork (const char *name, struct intr_frame *if_) {
 		return tid;
 	}
 	else{
+		// 실패 시 free하고 반환
 		free(fork);
+		list_remove(&c->child_elem);
+		free(c);
 		return TID_ERROR;
 	}
 }
@@ -304,7 +308,7 @@ __do_fork (void *aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
 
-	process_init ();
+	process_init();
 
 	/* fdt 복제 */
 	for (int i = 0; i < FD_TABLE_SIZE; i++) {
@@ -316,11 +320,10 @@ __do_fork (void *aux) {
 		if(fdt_entry->type == STDIN || fdt_entry->type == STDOUT){
 
 			struct fdt_entry *entry = calloc(1, sizeof(struct fdt_entry));
-			if(entry == NULL){
-				goto error;			
+			if(entry == NULL)
+				goto error;
 			current->fdt_entry[i] = entry;
 			current->fdt_entry[i]->type = fdt_entry->type;
-			}
 		}
 		/* file이면 */
 		else if(fdt_entry->type == FILE){
@@ -429,7 +432,6 @@ process_exec (void *f_name) {
 
 	/* If load failed, quit. */
 	palloc_free_page (f_name);
-
 	if (!success) {
 		return -1;
 	}
@@ -499,27 +501,23 @@ process_exit (void) {
 
 	/* fdt 초기화 */
 	
-	for(int i = 0; i < FD_TABLE_SIZE; i++){
-		// entry가 있는데
-		if (curr->fdt_entry[i] != NULL){
-			//안에 file도 있으면
-			if(curr->fdt_entry[i]->fdt != NULL){
-				lock_acquire(&file_lock);
-				file_close(curr->fdt_entry[i]->fdt);	//내부에서 free 됨
-				lock_release(&file_lock);
+	if (curr->fdt_entry != NULL) {
+		for(int i = 0; i < FD_TABLE_SIZE; i++){
+			// entry가 있는데
+			if (curr->fdt_entry[i] != NULL){
+				//안에 file도 있으면
+				if(curr->fdt_entry[i]->fdt != NULL){
+					lock_acquire(&file_lock);
+					file_close(curr->fdt_entry[i]->fdt);	//내부에서 free 됨
+					lock_release(&file_lock);
+				}
+			free(curr->fdt_entry[i]);
 			}
-		free(curr->fdt_entry[i]);
 		}
+		free(curr->fdt_entry);
 	}
-	free(curr->fdt_entry);
 
 	process_cleanup ();
-
-	/* child_info 없으면 그냥 exit하면 됨 */
-	if (curr->child_info){
-		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
-		sema_up(&curr->child_info->wait_sema);
-	}
 
 	if (curr->executable) {
 	    lock_acquire(&file_lock);
@@ -528,6 +526,12 @@ process_exit (void) {
         lock_release(&file_lock);
 	}
 
+	/* child_info 없으면 그냥 exit하면 됨 */
+	if (curr->child_info){
+		curr->child_info->exit_status = curr->exit_status;
+		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+		sema_up(&curr->child_info->wait_sema);
+	}
 }
 
 /* Free the current process's resources. */
@@ -732,6 +736,7 @@ load (const char **argv, int argc, struct intr_frame *if_) {
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 	load_arguments_to_stack(if_, argv, argc);
+	
 
 	success = true;
 

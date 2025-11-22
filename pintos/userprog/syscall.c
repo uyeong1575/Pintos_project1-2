@@ -91,8 +91,6 @@ put_user (uint8_t *udst, uint8_t byte) {
 void
 syscall_init (void) {
 
-	/* 0과 1에 해당하는 file 만들기? */
-
 	lock_init(&file_lock);
 
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
@@ -201,7 +199,6 @@ static void valid_put_buffer(char *buffer, unsigned length){
 static void sys_exit(int status) {
 
 	struct thread *curr = thread_current();
-	curr->child_info->exit_status = status;
 	curr->exit_status = status;
 	thread_exit();
 }
@@ -394,8 +391,7 @@ static int sys_write(int fd, void *buffer, unsigned length) {
 		/* stdout으로 write*/
 		putbuf(buffer, length);  // Write to console
 		return length;         // Return number of bytes written
-	}
-	else {
+	} else {
 		/* file에 write*/
 		struct file *file = thread_current()->fdt_entry[fd]->fdt;
 		if(file == NULL)
