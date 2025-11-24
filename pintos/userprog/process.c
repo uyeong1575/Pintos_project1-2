@@ -318,40 +318,28 @@ __do_fork (void *aux) {
 
 	/* dup는 바꾸면 안된다. */
 	/* fdt 복제 */
-	for (int i = 0; i < current->FD_TABLE_SIZE; i++) {
-		struct fdt_entry *fdt_entry = parent->fdt_entry[i];
-		if (fdt_entry == NULL)
+	for (int i = 0; i < parent->FD_TABLE_SIZE; i++) {
+		struct fdt_entry *p_entry = parent->fdt_entry[i];
+		if (p_entry == NULL)
 			continue;
 
-		/* file 아니면 */
-		if(fdt_entry->type == STDIN || fdt_entry->type == STDOUT){
-
-			struct fdt_entry *entry = calloc(1, sizeof(struct fdt_entry));
-			if(entry == NULL)
-				goto error;
-			current->fdt_entry[i] = entry;
-			current->fdt_entry[i]->type = fdt_entry->type;
-			current->fdt_entry[i]->ref_cnt = 1;
-		}
-		/* file이면 */
-		else if(fdt_entry->type == FILE){
-
-			struct fdt_entry *entry = calloc(1, sizeof(struct fdt_entry));
-			if(entry == NULL)
-				goto error;	
-
-			lock_acquire(&file_lock);
-			struct file *dup = file_duplicate(fdt_entry->fdt);
-			lock_release(&file_lock);
-			if (dup == NULL){
-				free(entry);
-				goto error;	//반환하면 안됨
+		/* 부모에서 같은 엔트리를 공유한 fd라면 자식도 동일 포인터 공유 */
+		bool dup_find = false;
+		if(p_entry->ref_cnt >= 2){
+			for (int j = 0; j < i; j++) {
+				if (parent->fdt_entry[j] == p_entry) {
+					current->fdt_entry[i] = current->fdt_entry[j];
+					dup_find = true;
+					break;
+				}
 			}
-			current->fdt_entry[i] = entry;
-			current->fdt_entry[i]->fdt = dup; //dup한거 채우기
-			current->fdt_entry[i]->type = FILE;
-			current->fdt_entry[i]->ref_cnt = 1;
 		}
+		/* dup 연결 했으면 만들기 생략 */
+		if (dup_find)
+			continue;
+
+		if (!dup_fdt_entry(p_entry, &current->fdt_entry[i]))
+			goto error;
 	}
 
 	/* Finally, switch to the newly created process. */
@@ -526,6 +514,13 @@ process_exit (void) {
         file_allow_write(curr->executable);
         file_close(curr->executable);
         lock_release(&file_lock);
+	}
+
+	/* child_list 순회하면서 정리 필요, 자식보다 부모가 먼저 죽으면 */
+	struct list_elem *e = list_begin(&curr->child_list);
+	while(e != list_end(&curr->child_list)){
+		e = list_remove(e);
+		continue;
 	}
 
 	/* child_info 없으면 그냥 exit하면 됨 */

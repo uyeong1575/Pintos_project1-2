@@ -47,3 +47,31 @@ increase_fdt_size(struct thread *t, int fd) {
 	t->FD_TABLE_SIZE = new_size;
 	return true;
 }
+
+/* parent 엔트리를 깊이 복제하여 dst_slot에 채운다. */
+bool
+dup_fdt_entry(struct fdt_entry *parent_ent, struct fdt_entry **child_ent){
+	if (parent_ent == NULL || child_ent == NULL)
+		return false;
+
+	struct fdt_entry *entry = calloc(1, sizeof(struct fdt_entry));
+	if(entry == NULL)
+		return false;
+
+	entry->type = parent_ent->type;
+	entry->ref_cnt = parent_ent->ref_cnt;
+
+	if(parent_ent->type == FILE){
+		lock_acquire(&file_lock);
+		struct file *dup = file_duplicate(parent_ent->fdt);
+		lock_release(&file_lock);
+		if (dup == NULL){
+			free(entry);
+			return false;
+		}
+		entry->fdt = dup;
+	}
+
+	*child_ent = entry;
+	return true;
+}
