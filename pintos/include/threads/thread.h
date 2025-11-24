@@ -140,6 +140,7 @@ struct child {
 	tid_t child_tid;
 	int exit_status;
 	bool waited;
+	bool p_alive;
 	struct semaphore wait_sema;
 };
 

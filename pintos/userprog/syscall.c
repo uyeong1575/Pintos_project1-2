@@ -1,6 +1,5 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
-#include <string.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -278,15 +277,8 @@ static int sys_open(const char *file){
     int res = -1;
     for (size_t i = 2; i < curr->FD_TABLE_SIZE; i++) {
         if(fdt_entry[i] == NULL){
-
-			struct fdt_entry *entry = calloc(1, sizeof(struct fdt_entry));
-			if(entry == NULL)
+			if(!open_fdt_entry(fdt_entry, i, opened_file))
 				PANIC("Failed to allocate fdt_entry");
-
-			fdt_entry[i] = entry;
-            fdt_entry[i]->fdt = opened_file;
-			fdt_entry[i]->ref_cnt = 1;
-			fdt_entry[i]->type = FILE;
             res = i;
             break;
         }
@@ -374,7 +366,6 @@ static int sys_read(int fd, void *buffer, unsigned length){
 			return -1;
 		}
 		lock_acquire(&file_lock);
-		/* file_reat_at 필요시 변경할지도 */
 		int size = file_read(file, buffer, length);
 		lock_release(&file_lock);
 		return size;
@@ -443,7 +434,7 @@ static unsigned sys_tell(int fd){
 
 	struct thread *curr = thread_current();
 
-	if(fd < 0 || fd > curr->FD_TABLE_SIZE) 	//이상한 fd 차단
+	if(fd < 0 || fd >= curr->FD_TABLE_SIZE) 	//이상한 fd 차단
 		sys_exit(-1);
 
 	struct fdt_entry **fdt_entry = curr->fdt_entry;
@@ -465,8 +456,8 @@ static unsigned sys_tell(int fd){
 }
 
 /*  stdin, stdout 닫기 가능해야함
-	newfd에 fdt_entry만들고 oldfd와 같은 file에 연결
-	newfd가 이미 있다면 close + 해제 해야함*/
+	newfd가 이미 있다면 close + 해제 해야함
+	oldfd entry를 newfd에 연결 */
 
 /*  oldfd가 유효하지 않으면 그냥 -1 리턴(newfd 안닫음)
 	이미 oldfd와 newfd가 같으면 그냥 newfd리턴 */
@@ -476,15 +467,15 @@ static int sys_dup2(int oldfd, int newfd) {
 
 	if(oldfd < 0 || oldfd >= curr->FD_TABLE_SIZE || newfd < 0) //이상한 fd 차단
 		return -1;
-
-	/* 필요시 fdt 크기 늘리기 */
-	if (!increase_fdt_size(curr, newfd))
-		return -1;
 	
 	struct fdt_entry **fdt_entry = thread_current()->fdt_entry;
 	
 	/* oldfd 유효하지 않으면 -1 리턴 */
 	if(curr->fdt_entry[oldfd] == NULL)
+		return -1;
+
+	/* 필요시 fdt 크기 늘리기 */
+	if (!increase_fdt_size(curr, newfd))
 		return -1;
 
 	/* newfd 있으면 */

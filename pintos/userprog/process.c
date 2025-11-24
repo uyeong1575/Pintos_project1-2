@@ -129,6 +129,7 @@ process_create_initd (const char *file_name) {
 	c->child_tid = tid;
 	c->exit_status = -1;
 	c->waited = false;
+	c->p_alive = true;
 	list_push_back(&parent->child_list, &c->child_elem);
 
 	return tid;
@@ -201,6 +202,7 @@ process_fork (const char *name, struct intr_frame *if_) {
 	c->child_tid = tid;
 	c->exit_status = -1;
 	c->waited = false;
+	c->p_alive = true;
 	list_push_back(&thread_current()->child_list, &c->child_elem);
 
 	// __do_fork 결과 확인용
@@ -316,7 +318,6 @@ __do_fork (void *aux) {
 
 	process_init();
 
-	/* dup는 바꾸면 안된다. */
 	/* fdt 복제 */
 	for (int i = 0; i < parent->FD_TABLE_SIZE; i++) {
 		struct fdt_entry *p_entry = parent->fdt_entry[i];
@@ -516,18 +517,28 @@ process_exit (void) {
         lock_release(&file_lock);
 	}
 
-	/* child_list 순회하면서 정리 필요, 자식보다 부모가 먼저 죽으면 */
+	/* 부모가 먼저 죽으면 자식들에게 p_alive = false로 죽었음을 전달 */
 	struct list_elem *e = list_begin(&curr->child_list);
-	while(e != list_end(&curr->child_list)){
-		e = list_remove(e);
-		continue;
+	if(e != NULL){
+		while(e != list_end(&curr->child_list)){
+			struct child *c = list_entry(e, struct child, child_elem);
+			c->p_alive = false;
+			e = list_next(e);
+		}
 	}
 
-	/* child_info 없으면 그냥 exit하면 됨 */
+	/* 커널 스레드면(child_info 없으면) 그냥 exit */
 	if (curr->child_info){
-		curr->child_info->exit_status = curr->exit_status;
+		/* 부모가 존재하면 정보 전달 */
+		if(curr->child_info->p_alive == true){
+			curr->child_info->exit_status = curr->exit_status;
+			sema_up(&curr->child_info->wait_sema);
+		}
+		/* 부모가 강제 exit 됐으면 자식이 child_info free */
+		else{
+			free(curr->child_info);
+		}
 		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
-		sema_up(&curr->child_info->wait_sema);
 	}
 }
 

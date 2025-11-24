@@ -6,6 +6,27 @@
 /* file_lock is defined in syscall.c. */
 extern struct lock file_lock;
 
+
+/* file 받아서 fdt_entry 만들기 */
+bool 
+open_fdt_entry(struct fdt_entry **fdt_entry, int fd, struct file *file){
+
+	if(fdt_entry == NULL || file == NULL)
+		return false;
+
+	struct fdt_entry *entry = calloc(1, sizeof(struct fdt_entry));
+	if(entry == NULL)
+		return false;
+
+	fdt_entry[fd] = entry;
+	fdt_entry[fd]->fdt = file;
+	fdt_entry[fd]->ref_cnt = 1;
+	fdt_entry[fd]->type = FILE;
+
+	return true;
+}
+
+
 /* ref_cnt 기준으로 파일 닫기 */
 void
 close_fdt_entry(struct fdt_entry **table, int fd){
@@ -48,7 +69,7 @@ increase_fdt_size(struct thread *t, int fd) {
 	return true;
 }
 
-/* parent 엔트리를 깊이 복제하여 dst_slot에 채운다. */
+/* parent 엔트리 깊은 복사 해서 child에 연결 */
 bool
 dup_fdt_entry(struct fdt_entry *parent_ent, struct fdt_entry **child_ent){
 	if (parent_ent == NULL || child_ent == NULL)
