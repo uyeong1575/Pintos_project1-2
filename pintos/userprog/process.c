@@ -31,8 +31,19 @@ static void set_initd_stdio (struct thread *t);
 static bool load (const char **argv, int argc, struct intr_frame *if_);
 static void initd (void *aux);
 static void __do_fork (void *);
+void child_init(struct thread *parent, struct child *c);
 
 extern struct lock file_lock;
+
+/* 자식 구조체 세팅 */
+void child_init(struct thread *parent, struct child *c){
+	c->child_tid = -1; //일단 안쓰는 -1로
+	c->exit_status = -1;
+	c->waited = false;
+	c->p_alive = true;
+	sema_init(&c->wait_sema, 0);
+	list_push_back(&parent->child_list, &c->child_elem);
+}
 
 /* General process initializer for initd and other process. */
 static void
@@ -114,23 +125,19 @@ process_create_initd (const char *file_name) {
 	initd_arg->fn_copy = fn_copy;
 	initd_arg->c = c;
 
-	sema_init(&c->wait_sema, 0);	// 먼저 sema_init 해야함!!
+	child_init(parent, c);
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, initd_arg);
 	if (tid == TID_ERROR){
+		list_remove(&c->child_elem);
 		palloc_free_page (fn_copy);
 		free(c);
 		free(initd_arg);
 		return TID_ERROR;
 	}
 
-	// 자식(initd) 구조체 필드 채우고 부모(main) list에 등록
 	c->child_tid = tid;
-	c->exit_status = -1;
-	c->waited = false;
-	c->p_alive = true;
-	list_push_back(&parent->child_list, &c->child_elem);
 
 	return tid;
 }
@@ -142,19 +149,20 @@ initd (void *aux) {
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
 
-	/* initd 스레드의 child 구조체 생성 */
+	struct thread *curr = thread_current();	
+
 	struct initd_arg *i = aux;
     struct child *child = i->c;
     char *file_name = i->fn_copy;
     free(i);	// aux로 전달된 구조체 free
 
-	//exit시 child_info 접근(sema_up, exit_status) 하기 때문에 여기서 해야함
-	thread_current()->child_info = child;
-	thread_current()->FD_TABLE_SIZE = 128; // 초기(initd) fdt size 128 세팅
+	//exit시 child_info 접근하기 때문에 여기서 해야함
+	curr->child_info = child;
+	curr->FD_TABLE_SIZE = 128; // 초기(initd) fdt size 128 세팅
 
 	process_init();
 
-	set_initd_stdio(thread_current());
+	set_initd_stdio(curr);
 
 	if (process_exec (file_name) < 0)
 		PANIC("Fail to launch initd\n");
@@ -186,8 +194,10 @@ process_fork (const char *name, struct intr_frame *if_) {
 	fork->f = if_;
 	fork->t = thread_current();
 	fork->c = c;
+
 	sema_init(&fork->forksema, 0); //__do_fork 결과 확인용
-	sema_init(&c->wait_sema, 0); // create전에 init 해야함
+
+	child_init(thread_current(), c);
 
 	/* Clone current thread to new thread.*/
 	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, fork);
@@ -197,13 +207,8 @@ process_fork (const char *name, struct intr_frame *if_) {
 		free(c);
 		return TID_ERROR;
 	}
-
 	// 자식 구조체 필드 채우고 부모 list에 등록
 	c->child_tid = tid;
-	c->exit_status = -1;
-	c->waited = false;
-	c->p_alive = true;
-	list_push_back(&thread_current()->child_list, &c->child_elem);
 
 	// __do_fork 결과 확인용
 	sema_down(&fork->forksema);
@@ -283,6 +288,7 @@ __do_fork (void *aux) {
 	struct thread *parent = (struct thread *) args->t;
 	struct thread *current = thread_current ();
 
+	/* 자식 정보 채우기 */
 	current->FD_TABLE_SIZE = parent->FD_TABLE_SIZE;
 	current->child_info = args->c;
 
@@ -319,29 +325,8 @@ __do_fork (void *aux) {
 	process_init();
 
 	/* fdt 복제 */
-	for (int i = 0; i < parent->FD_TABLE_SIZE; i++) {
-		struct fdt_entry *p_entry = parent->fdt_entry[i];
-		if (p_entry == NULL)
-			continue;
-
-		/* 부모에서 같은 엔트리를 공유한 fd라면 자식도 동일 포인터 공유 */
-		bool dup_find = false;
-		if(p_entry->ref_cnt >= 2){
-			for (int j = 0; j < i; j++) {
-				if (parent->fdt_entry[j] == p_entry) {
-					current->fdt_entry[i] = current->fdt_entry[j];
-					dup_find = true;
-					break;
-				}
-			}
-		}
-		/* dup 연결 했으면 만들기 생략 */
-		if (dup_find)
-			continue;
-
-		if (!dup_fdt_entry(p_entry, &current->fdt_entry[i]))
-			goto error;
-	}
+	if(!fork_fdt(parent, current))
+		goto error;
 
 	/* Finally, switch to the newly created process. */
 	if (succ){

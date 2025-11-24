@@ -6,8 +6,7 @@
 /* file_lock is defined in syscall.c. */
 extern struct lock file_lock;
 
-
-/* file 받아서 fdt_entry 만들기 */
+/* file 받아서 fd 자리에 fdt_entry 만들기 */
 bool 
 open_fdt_entry(struct fdt_entry **fdt_entry, int fd, struct file *file){
 
@@ -54,22 +53,32 @@ increase_fdt_size(struct thread *t, int fd) {
 	if (fd < old_size)
 		return true;
 
+	/* 2^n 값 구하기 */
 	int need = fd + 1;
 	int new_size = old_size ? old_size : 1;
 	while (new_size < need)
 		new_size <<= 1;
 
-	struct fdt_entry **new_entry = realloc(t->fdt_entry, new_size * sizeof(struct fdt_entry*));
-	if (new_entry == NULL)
+	struct fdt_entry **old_entry = t->fdt_entry;
+	if (old_entry == NULL)
 		return false;
 
-	memset(new_entry + old_size, 0, (new_size - old_size) * sizeof(struct fdt_entry*));
+	/* 새 버퍼를 0으로 초기화, 기존 내용을 복사 */
+	struct fdt_entry **new_entry = calloc(new_size, sizeof(struct fdt_entry*));
+	if (new_entry == NULL)
+		return false;
+	memcpy(new_entry, old_entry, old_size * sizeof(struct fdt_entry*));
+
 	t->fdt_entry = new_entry;
 	t->FD_TABLE_SIZE = new_size;
+
+	free(old_entry);
+
 	return true;
 }
 
 /* parent 엔트리 깊은 복사 해서 child에 연결 */
+/* FILE일 경우만 dup, STDIN/STDOUT 이면 그냥 만들기*/
 bool
 dup_fdt_entry(struct fdt_entry *parent_ent, struct fdt_entry **child_ent){
 	if (parent_ent == NULL || child_ent == NULL)
@@ -94,5 +103,35 @@ dup_fdt_entry(struct fdt_entry *parent_ent, struct fdt_entry **child_ent){
 	}
 
 	*child_ent = entry;
+	return true;
+}
+
+/* 부모 fdt_entry배열 fork*/
+bool
+fork_fdt(struct thread *parent, struct thread *child){
+	for (int i = 0; i < parent->FD_TABLE_SIZE; i++) {
+		struct fdt_entry *p_entry = parent->fdt_entry[i];
+		if (p_entry == NULL)
+			continue;
+
+		/* 부모에서 같은 엔트리를 공유한 fd라면 자식도 동일 포인터 공유 */
+		bool dup_find = false;
+		if(p_entry->ref_cnt >= 2){
+			for (int j = 0; j < i; j++) {
+				if (parent->fdt_entry[j] == p_entry) {
+					child->fdt_entry[i] = child->fdt_entry[j];
+					dup_find = true;
+					break;
+				}
+			}
+		}
+		/* dup 연결 했으면 만들기 생략 */
+		if (dup_find)
+			continue;
+
+		if (!dup_fdt_entry(p_entry, &child->fdt_entry[i]))
+			return false;
+	}
+
 	return true;
 }
