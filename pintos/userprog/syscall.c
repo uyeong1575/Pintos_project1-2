@@ -265,9 +265,9 @@ static int sys_open(const char *file){
 
     lock_acquire(&file_lock);
     struct file *opened_file = filesys_open(file);
+	lock_release(&file_lock);
     if (opened_file == NULL) {
 		/* open 실패면 inode close, free(file) 해줌 */
-        lock_release(&file_lock); 
         return -1;
     }
 
@@ -276,22 +276,23 @@ static int sys_open(const char *file){
 
 	// 모두 차있으면 fdt size 늘리기
 	if (res == -1){
-		if (!increase_fdt_size(curr, curr->FD_TABLE_SIZE)) {
+		int old_size = curr->FD_TABLE_SIZE;
+		if (!increase_fdt_size(curr, old_size)) {
+			lock_acquire(&file_lock);
 			file_close(opened_file);
 			lock_release(&file_lock);
 			return -1;
 		}
-		res = find_empty_fd(curr);
+		res = old_size;
 	}
 
 	/* 늘렸으니 찾아서 넣기 */
 	if(!open_fdt_entry(curr->fdt_entry, res, opened_file)){
+		lock_acquire(&file_lock);
 		file_close(opened_file);
 		lock_release(&file_lock);
 		return -1;
 	}
-
-    lock_release(&file_lock);
 
     return res;
 }

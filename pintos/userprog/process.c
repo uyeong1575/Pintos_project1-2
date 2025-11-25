@@ -46,7 +46,7 @@ void child_init(struct thread *parent, struct child *c){
 }
 
 /* General process initializer for initd and other process. */
-static void
+static bool
 process_init (void) {
 	struct thread *curr = thread_current ();
 	/* 프로세스에 필요한 구조체 여기서 만들어야함.*/
@@ -54,12 +54,14 @@ process_init (void) {
 	/* fdt entry 포인터 배열 할당 */
 	curr->fdt_entry = calloc(curr->FD_TABLE_SIZE, sizeof(struct fdt_entry*));
 	if (curr->fdt_entry == NULL)
-        PANIC("Failed to allocate file descriptor table");
+        return false;
+	return true;
 }
 
 /* initd 처음 STDIN/STDOUT 세팅, (이후 fork는 부모 따라가도록) */
 static void
 set_initd_stdio (struct thread *t) {
+
 	struct fdt_entry *f0 = calloc(1, sizeof(struct fdt_entry));
 	if (f0 == NULL)
 		PANIC("Failed to initd STDIN setting");
@@ -219,8 +221,8 @@ process_fork (const char *name, struct intr_frame *if_) {
 	else{
 		// 실패 시 free하고 반환
 		free(fork);
-		list_remove(&c->child_elem);
-		free(c);
+		// list_remove(&c->child_elem);
+		// free(c);
 		return TID_ERROR;
 	}
 }
@@ -321,7 +323,8 @@ __do_fork (void *aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
 
-	process_init();
+	if(!process_init())
+		goto error;
 
 	/* fdt 복제 */
 	if(!fork_fdt(parent, current))
@@ -336,7 +339,6 @@ __do_fork (void *aux) {
 	}
 error:
 	args->success = false;
-	current->child_info = NULL;
 	sema_up(&args->forksema);
 	thread_exit ();
 }
@@ -482,6 +484,8 @@ process_exit (void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
+	if(curr->pml4 == NULL) return;	//커널 스레드면 그냥 리턴
+
 	/* fdt 초기화 */
 	if (curr->fdt_entry != NULL) {
 		for(int i = 0; i < curr->FD_TABLE_SIZE; i++){
@@ -512,19 +516,17 @@ process_exit (void) {
 		}
 	}
 
-	/* 커널 스레드면(child_info 없으면) 그냥 exit */
-	if (curr->child_info){
-		/* 부모가 존재하면 정보 전달 */
-		if(curr->child_info->p_alive == true){
-			curr->child_info->exit_status = curr->exit_status;
-			sema_up(&curr->child_info->wait_sema);
-		}
-		/* 부모가 강제 exit 됐으면 자식이 child_info free */
-		else{
-			free(curr->child_info);
-		}
-		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+	/* 부모가 존재하면 정보 전달 */
+	if(curr->child_info->p_alive == true){
+		curr->child_info->exit_status = curr->exit_status;
+		sema_up(&curr->child_info->wait_sema);
 	}
+	/* 부모가 강제 exit 됐으면 자식이 child_info free */
+	else{
+		free(curr->child_info);
+	}
+	printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+
 }
 
 /* Free the current process's resources. */
