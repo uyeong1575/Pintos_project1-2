@@ -13,7 +13,7 @@ main (int argc UNUSED, char *argv[] UNUSED) {
   char buf[16];
   int fd = open ("sample.txt");
   CHECK (fd > 1, "open \"sample.txt\"");
-  CHECK (read (fd, buf, 5) == 5, "prime offset");
+  CHECK (read (fd, buf, 5) == 5, "set offset to 5");
   int dup_fd = dup2 (fd, 30);
   CHECK (dup_fd == 30, "dup2 to 30");
   pid_t pid = fork ("dup-child");
@@ -26,7 +26,7 @@ main (int argc UNUSED, char *argv[] UNUSED) {
     if (off_fd != 5 || off_dup != 5)
       fail ("child inherited offsets fd=%d dup=%d (expected 5)", off_fd, off_dup);
 
-    CHECK (read (dup_fd, buf, 7) == 7, "child read through dup");
+    CHECK (read (dup_fd, buf, 7) == 7, "child read dup fd");
     off_fd = tell (fd);
     off_dup = tell (dup_fd);
     if (off_fd != 12 || off_dup != 12)
